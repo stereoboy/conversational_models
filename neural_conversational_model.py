@@ -469,11 +469,10 @@ def process(train=True):
   x, y, t, t_w = get_input(_buckets)
   print_now(start)
 
-  outputs, losses = model(x, y, t, t_w, _buckets, True)
-  print_now(start)
+  with tf.variable_scope("") as scope:
+    outputs, losses = model(x, y, t, t_w, _buckets, True)
+    print_now(start)
 
-  for output in outputs:
-    print output
   outtexts = [[] for _ in xrange(len(_buckets))]
   for b_id, bucket in enumerate(_buckets):
     print bucket
@@ -481,14 +480,24 @@ def process(train=True):
     for l in xrange(decoder_size):  # Output logits.
       outtexts[b_id].append(tf.argmax(outputs[b_id][l][0], 0))
 #
-#  #infer_output = model(x, y, False)
-#
   updates, gradient_norms, learning_rate_decay_op = get_opt(losses, _buckets)
   print_now(start)
+#
+  with tf.variable_scope("", reuse=True) as scope:
+    outputs_infer, _ = model(x, y, t, t_w, _buckets, False)
+    print_now(start)
+
+  outtexts_infer = [[] for _ in xrange(len(_buckets))]
+  for b_id, bucket in enumerate(_buckets):
+    print bucket
+    _, decoder_size = bucket
+    for l in xrange(decoder_size):  # Output logits.
+      outtexts_infer[b_id].append(tf.argmax(outputs_infer[b_id][l][0], 0))
 
   var_list = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
   for i, var in enumerate(var_list):
     print "[", i, "]", var
+
   init_op = tf.group(tf.global_variables_initializer(),
                      tf.local_variables_initializer())
 
@@ -540,7 +549,7 @@ def process(train=True):
           _, _, loss = sess.run(output_feed, feed_dict)
           #outs = sess.run(output_feed, feed_dict)
           print "loss:", loss
-          ids = sess.run(outtexts[bucket_id], feed_dict)
+          ids = sess.run(outtexts_infer[bucket_id], feed_dict)
           final = " ".join(recover_sentence(id2word, ids))
           print "Q:", q
           print "A:", a
