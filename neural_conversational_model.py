@@ -27,7 +27,7 @@ tf.flags.DEFINE_integer("img_size", "500", "sample image size")
 tf.flags.DEFINE_string("dicts_file", "cornell_dicts.json", "dictionary file for saving word2id, id2word")
 tf.flags.DEFINE_string("convs_file", "cornell_convs_v3.json", "conversation ids file")
 tf.flags.DEFINE_string("save_dir", "cm_checkpoints", "dir for checkpoints")
-tf.flags.DEFINE_integer("save_itr", "300", "checkpoint interval")
+tf.flags.DEFINE_integer("save_itr", "200", "checkpoint interval")
 tf.flags.DEFINE_float("learning_rate", "0.5", "Learning rate for Momentum Optimizer")
 tf.flags.DEFINE_float("learning_rate_decay_factor", 0.99, "Learning rate decays by this much.")
 tf.flags.DEFINE_float("max_gradient_norm", 5.0, "Clip gradients to this norm.")
@@ -497,7 +497,7 @@ def process(train=True):
     sess.run(init_op)
 
     previous_losses = []
-    loss = 0.0
+    loss_btw_chk = 0.0
 
     # Start input enqueue threads.
     saver = tf.train.Saver()
@@ -537,9 +537,9 @@ def process(train=True):
               losses[bucket_id]]  # Loss for this batch.
           #output_feed.append(outtexts[bucket_id])
 
-          #_, _, loss = sess.run(output_feed, feed_dict)
-          outs = sess.run(output_feed, feed_dict)
-          print "loss:", outs[2]
+          _, _, loss = sess.run(output_feed, feed_dict)
+          #outs = sess.run(output_feed, feed_dict)
+          print "loss:", loss
           ids = sess.run(outtexts[bucket_id], feed_dict)
           final = " ".join(recover_sentence(id2word, ids))
           print "Q:", q
@@ -554,25 +554,20 @@ def process(train=True):
           print "A:", a
           print "G:", final
 
-#        _, loss_val = sess.run([opt, loss], feed_dict=feed_dict)
-#        accuracy_val = sess.run([accuracy], feed_dict=feed_dict)
-#        print "\tloss:", loss_val
-#        print "\taccuracy:", accuracy_val
-
-        #images_value, labels_value = sess.run([x, y], feed_dict=feed_dict)
-#        indexed_out_val = sess.run(indexed_out, feed_dict=feed_dict)
+        loss_btw_chk += loss/FLAGS.save_itr
 
         current = datetime.now()
         print "\telapsed:", current - start
 
-#        if itr > 1 and itr %10 == 0:
-#          # Decrease learning rate if no improvement was seen over last 3 times.
-#          if len(previous_losses) > 2 and loss > max(previous_losses[-3:]):
-#            sess.run(learning_rate_decay_op)
-#          previous_losses.append(loss)
-
 
         if itr > 1 and itr % FLAGS.save_itr == 0:
+          # Decrease learning rate if no improvement was seen over last 3 times.
+          if len(previous_losses) > 2 and loss_btw_chk > max(previous_losses):
+            sess.run(learning_rate_decay_op)
+          previous_losses.append(loss_btw_chk)
+          if len(previous_losses) > 3:
+            previous_losses.pop(0)
+          loss_btw_chk = 0.0, 0.0
           print "#######################################################"
           saver.save(sess, checkpoint)
 
