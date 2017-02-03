@@ -49,7 +49,8 @@ eos =     3 #word2id["<eos>"]
 #_buckets = [(5,5), (12, 12),]
 #V3
 _buckets = [(FLAGS.max_len, FLAGS.max_len + 1),]
-_buckets = [(8, 8),]
+_buckets = [(8, 8)]
+#_buckets = [(8, 8), (12, 12)]
 #
 # original source code of read_data() is from https://github.com/Conchylicultor/DeepQA.git
 # thanks to Conchylicutor
@@ -373,12 +374,12 @@ def set_feed((x, x_inputs), (y, y_inputs), (t_w, t_w_inputs), bucket_size):
 
   return input_feed
 
-def model(x, y, t, t_w, buckets, train=True, dtype=tf.float32):
+def model(x, y, t, t_w, buckets, train=True):
   print "setup model..."
 
-  w = tf.get_variable("proj_w", [FLAGS.state_dim, FLAGS.voc_size], dtype=dtype)
+  w = tf.get_variable("proj_w", [FLAGS.state_dim, FLAGS.voc_size], dtype=tf.float32)
   w_t = tf.transpose(w)
-  b = tf.get_variable("proj_b", [FLAGS.voc_size], dtype=dtype)
+  b = tf.get_variable("proj_b", [FLAGS.voc_size], dtype=tf.float32)
   output_projection = (w, b)
 
   single_cell = tf.nn.rnn_cell.BasicLSTMCell(FLAGS.state_dim)
@@ -388,13 +389,11 @@ def model(x, y, t, t_w, buckets, train=True, dtype=tf.float32):
     labels = tf.reshape(labels, [-1, 1])
     # We need to compute the sampled_softmax_loss using 32bit floats to
     # avoid numerical instabilities.
-    local_w_t = tf.cast(w_t, tf.float32)
-    local_b = tf.cast(b, tf.float32)
     local_inputs = tf.cast(inputs, tf.float32)
     return tf.cast(
-        tf.nn.sampled_softmax_loss(local_w_t, local_b, local_inputs, labels,
+        tf.nn.sampled_softmax_loss(w_t, b, local_inputs, labels,
           FLAGS.num_samples, FLAGS.voc_size),
-        dtype)
+        dtype=tf.float32)
   softmax_loss_function = sampled_loss
 
   # The seq2seq function: we use embedding for the input and attention.
@@ -408,30 +407,27 @@ def model(x, y, t, t_w, buckets, train=True, dtype=tf.float32):
         FLAGS.state_dim,
         output_projection=output_projection,
         feed_previous=do_decode,
-        dtype=dtype
+        dtype=tf.float32
         )
 
-    # Training outputs and losses.
+  # Training outputs and losses.
   if not train:
-    outputs, losses = tf.nn.seq2seq.model_with_buckets(
-        x, y, t,
-        t_w, buckets,
-        lambda x, y: seq2seq_f(x, y, True),
-        softmax_loss_function=softmax_loss_function)
-    # only for inference step
-    # If we use output projection, we need to project outputs for decoding.
-    for b_id in xrange(len(buckets)):
-      outputs[b_id] = [tf.matmul(output, w) + b for output in outputs[b_id]]
+    do_decode = True
   else:
-    outputs, losses = tf.nn.seq2seq.model_with_buckets(
-        x, y, t,
-        t_w, buckets,
-        lambda x, y: seq2seq_f(x, y, False),
-        softmax_loss_function=softmax_loss_function)
-    for b_id in xrange(len(buckets)):
-      outputs[b_id] = [tf.matmul(output, w) + b for output in outputs[b_id]]
+    do_decode = False
 
-    return outputs, losses
+  _outputs, losses = tf.nn.seq2seq.model_with_buckets(
+      x, y, t,
+      t_w, buckets,
+      lambda x, y: seq2seq_f(x, y, True),
+      softmax_loss_function=softmax_loss_function)
+  # only for inference step
+  # If we use output projection, we need to project outputs for decoding.
+  outputs = []
+  for b_id in xrange(len(buckets)):
+    outputs.append([tf.matmul(_output, w) + b for _output in _outputs[b_id]])
+
+  return outputs, losses
 
 def get_opt(losses, buckets, dtype=tf.float32):
   print "setup optimizer..."
@@ -475,6 +471,15 @@ def process(train=True):
 
   outputs, losses = model(x, y, t, t_w, _buckets, True)
   print_now(start)
+
+  for output in outputs:
+    print output
+  outtexts = [[] for _ in xrange(len(_buckets))]
+  for b_id, bucket in enumerate(_buckets):
+    print bucket
+    _, decoder_size = bucket
+    for l in xrange(decoder_size):  # Output logits.
+      outtexts[b_id].append(tf.argmax(outputs[b_id][l][0], 0))
 #
 #  #infer_output = model(x, y, False)
 #
@@ -522,37 +527,32 @@ def process(train=True):
         x_inputs, y_inputs, t_w_inputs = parse_batch(batch, bucket_size)
         feed_dict = set_feed((x, x_inputs), (y, y_inputs), (t_w, t_w_inputs), bucket_size)
 
+        (q_ids, a_ids) = batch[1][0]
+        q = " ".join(recover_sentence(id2word, q_ids))
+        a = " ".join(recover_sentence(id2word, a_ids))
         # Output feed: depends on whether we do a backward step or not.
         if train:
-          (q_ids, a_ids) = batch[1][0]
-          q = " ".join(recover_sentence(id2word, q_ids))
-          a = " ".join(recover_sentence(id2word, a_ids))
           output_feed = [updates[bucket_id],  # Update Op that does SGD.
               gradient_norms[bucket_id],  # Gradient norm.
               losses[bucket_id]]  # Loss for this batch.
-          for l in xrange(decoder_size):  # Output logits.
-            output_feed.append(outputs[bucket_id][l][0])
+          #output_feed.append(outtexts[bucket_id])
 
           #_, _, loss = sess.run(output_feed, feed_dict)
           outs = sess.run(output_feed, feed_dict)
-          loss = outs[2]
-          logits = outs[3:]
-          print len(logits), logits[0].shape
-          ids = [int(np.argmax(logit)) for logit in logits]
+          print "loss:", outs[2]
+          ids = sess.run(outtexts[bucket_id], feed_dict)
           final = " ".join(recover_sentence(id2word, ids))
           print "Q:", q
           print "A:", a
           print "G:", final
         else:
-          output_feed = [losses[bucket_id]]  # Loss for this batch.
-          for l in xrange(decoder_size):  # Output logits.
-            output_feed.append(outputs[bucket_id][l])
-
-          outs = sess.run(output_feed, feed_dict)
-          logits = outs[1:]
-          ids = [int(np.argmax(logit, axis=1)) for logit in logits]
+          _, _, loss = sess.run(output_feed, feed_dict)
+          print "loss:", loss
+          ids = sess.run(outtexts[bucket_id], feed_dict)
           final = " ".join(recover_sentence(id2word, ids))
-          print final
+          print "Q:", q
+          print "A:", a
+          print "G:", final
 
 #        _, loss_val = sess.run([opt, loss], feed_dict=feed_dict)
 #        accuracy_val = sess.run([accuracy], feed_dict=feed_dict)
