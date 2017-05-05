@@ -125,7 +125,7 @@ def read_data():
       _conversations.append(convObj)
 
   for key, value in _conversations[0].items():
-    print key, value
+    print(key, value)
 
   return _conversations
 
@@ -133,7 +133,7 @@ def read_data():
 def build_dict(_conversations):
   dictionary_path = os.path.join("./", FLAGS.dicts_file)
   if os.path.exists(dictionary_path):
-    print "load", dictionary_path
+    print("load %s"%(dictionary_path))
     with open(dictionary_path) as f:
       data = json.load(f)
       word2id = data['word2id']
@@ -141,7 +141,7 @@ def build_dict(_conversations):
       for key, value in data['id2word'].items():
         id2word[int(key)] = value
   else:
-    print "create dictionary.json"
+    print("create dictionary.json")
     words = []
     for convs in tqdm(_conversations, desc="split text..."):
       for conv in convs['lines']:
@@ -167,8 +167,8 @@ def build_dict(_conversations):
 
     id2word = dict(zip(word2id.values(), word2id.keys()))
 
-    print word2id.values()[:10]
-    print word2id.keys()[:10]
+    print(word2id.values()[:10])
+    print(word2id.keys()[:10])
     with open(dictionary_path, "wb+") as f:
       data = {'word2id':word2id, 'id2word':id2word}
       json.dump(data, f, indent=2)
@@ -180,7 +180,7 @@ def convert_enc(word2id, line):
   sentencesToken = nltk.sent_tokenize(line)
 
   #print "sentencesToken:", sentencesToken
-  for i in xrange(len(sentencesToken)):
+  for i in range(len(sentencesToken)):
     i = len(sentencesToken)-1 - i
 
     tokens = nltk.word_tokenize(sentencesToken[i])
@@ -204,7 +204,7 @@ def convert_dec(word2id, line):
   sentencesToken = nltk.sent_tokenize(line)
 
   #print "sentencesToken:", sentencesToken
-  for i in xrange(len(sentencesToken)):
+  for i in range(len(sentencesToken)):
 
     tokens = nltk.word_tokenize(sentencesToken[i])
 
@@ -229,7 +229,7 @@ def recover_sentence(id2word, ids):
 def build_conversations(word2id, id2word, _conversations):
   conversation_path = os.path.join("./", FLAGS.convs_file)
   if os.path.exists(conversation_path):
-    print "load", conversation_path
+    print("load %s"%(conversation_path))
     with open(conversation_path) as f:
       data = json.load(f)
       conversations = data['conversations']
@@ -239,7 +239,7 @@ def build_conversations(word2id, id2word, _conversations):
     for convs in tqdm(_conversations, desc="convert raw_data into data..."):
 
       # Iterate over all the lines of the conversation
-      for i in xrange(len(convs["lines"]) - 1):  # We ignore the last line (no answer for it)
+      for i in range(len(convs["lines"]) - 1):  # We ignore the last line (no answer for it)
 #      print "---------------------------------------------"
         _encode = convs["lines"][i]
         _decode = convs["lines"][i+1]
@@ -269,7 +269,7 @@ def create_batch(conversations, buckets):
         _batches[bucket_id].append((encode, decode))
 
   for bucket_id, (encoder_size, decoder_size) in enumerate(buckets):
-    print "[", bucket_id, "](", encoder_size, "x", decoder_size, "):", len(_batches[bucket_id])
+    print("[%d](%dx%d): %d"%(bucket_id, encoder_size, decoder_size, len(_batches[bucket_id])))
 
   return _batches
 
@@ -278,7 +278,7 @@ def shuffle(_batches):
 
   for bucket_id, sub in enumerate(_batches):
     random.shuffle(sub)
-    for i in xrange(len(sub)//FLAGS.batch_size):
+    for i in range(len(sub)//FLAGS.batch_size):
       batches.append((bucket_id, sub[i*FLAGS.batch_size:(i+1)*FLAGS.batch_size]))
 
   random.shuffle(batches)
@@ -295,7 +295,7 @@ def parse_batch(batch, bucket_size):
 
   # Get a random batch of encoder and decoder inputs from data,
   # pad them if needed, reverse encoder inputs and add GO to decoder.
-  for i in xrange(FLAGS.batch_size):
+  for i in range(FLAGS.batch_size):
     encoder_input, decoder_input = batch_[i]
 
     # Encoder inputs are padded and then reversed.
@@ -311,20 +311,20 @@ def parse_batch(batch, bucket_size):
   batch_encoder_inputs, batch_decoder_inputs, batch_weights = [], [], []
 
   # Batch encoder inputs are just re-indexed encoder_inputs.
-  for length_idx in xrange(len(encoder_inputs[0])):
+  for length_idx in range(len(encoder_inputs[0])):
     batch_encoder_inputs.append(
         np.array([encoder_inputs[batch_idx][length_idx]
-                  for batch_idx in xrange(FLAGS.batch_size)], dtype=np.int32))
+                  for batch_idx in range(FLAGS.batch_size)], dtype=np.int32))
 
   # Batch decoder inputs are re-indexed decoder_inputs, we create weights.
-  for length_idx in xrange(len(decoder_inputs[0])):
+  for length_idx in range(len(decoder_inputs[0])):
     batch_decoder_inputs.append(
         np.array([decoder_inputs[batch_idx][length_idx] 
-                  for batch_idx in xrange(FLAGS.batch_size)], dtype=np.int32))
+                  for batch_idx in range(FLAGS.batch_size)], dtype=np.int32))
 
     # Create target_weights to be 0 for targets that are padding.
     batch_weight = np.ones(FLAGS.batch_size, dtype=np.float32)
-    for batch_idx in xrange(FLAGS.batch_size):
+    for batch_idx in range(FLAGS.batch_size):
       # We set weight to 0 if the corresponding target is a PAD symbol.
       # The corresponding target is decoder_input shifted by 1 forward.
       if length_idx < decoder_size:
@@ -338,18 +338,18 @@ def parse_batch(batch, bucket_size):
   return batch_encoder_inputs, batch_decoder_inputs, batch_weights
 
 def get_input(buckets, dtype=np.float32):
-  print "setup input..."
+  print("setup input...")
   # Feeds for inputs.
   x = []
   y = []
   t_w = []
-  for i in xrange(buckets[-1][0]):  # Last bucket is the biggest one.
+  for i in range(buckets[-1][0]):  # Last bucket is the biggest one.
     x.append(tf.placeholder(tf.int32, shape=[None],	name="encoder{0}".format(i)))
-  for i in xrange(buckets[-1][1] + 1): # +1 is for setting up targets below
+  for i in range(buckets[-1][1] + 1): # +1 is for setting up targets below
     y.append(tf.placeholder(tf.int32, shape=[None], name="decoder{0}".format(i)))
     t_w.append(tf.placeholder(dtype, shape=[None], name="weight{0}".format(i)))
   # Our targets are decoder inputs shifted by one.
-  t = [y[i + 1] for i in xrange(len(y) - 1)]
+  t = [y[i + 1] for i in range(len(y) - 1)]
 
   #
   #             t: y[1] y[2] ... y[max_size]     | .
@@ -357,14 +357,17 @@ def get_input(buckets, dtype=np.float32):
   #             w: w[0] w[1] ... w[max_size - 1] | w[max_size]
   return x, y, t, t_w
 
-def set_feed((x, x_inputs), (y, y_inputs), (t_w, t_w_inputs), bucket_size):
+def set_feed(x_n_x_inputs, y_n_y_inputs, t_n_t_w_inputs, bucket_size):
+  (x, x_inputs) = x_n_x_inputs
+  (y, y_inputs) = y_n_y_inputs
+  (t_w, t_w_inputs) = t_n_t_w_inputs
   encoder_size, decoder_size = bucket_size
 
   # Input feed: encoder inputs, decoder inputs, target_weights, as provided.
   input_feed = {}
-  for l in xrange(len(x_inputs)):
+  for l in range(len(x_inputs)):
     input_feed[x[l].name] = x_inputs[l]
-  for l in xrange(len(y_inputs)):
+  for l in range(len(y_inputs)):
     input_feed[y[l].name] = y_inputs[l]
     input_feed[t_w[l].name] = t_w_inputs[l]
 
@@ -375,15 +378,15 @@ def set_feed((x, x_inputs), (y, y_inputs), (t_w, t_w_inputs), bucket_size):
   return input_feed
 
 def model(x, y, t, t_w, buckets, train=True):
-  print "setup model..."
+  print("setup model...")
 
   w = tf.get_variable("proj_w", [FLAGS.state_dim, FLAGS.voc_size], dtype=tf.float32)
   w_t = tf.transpose(w)
   b = tf.get_variable("proj_b", [FLAGS.voc_size], dtype=tf.float32)
   output_projection = (w, b)
 
-  single_cell = tf.nn.rnn_cell.BasicLSTMCell(FLAGS.state_dim)
-  cell = tf.nn.rnn_cell.MultiRNNCell([single_cell]*FLAGS.layer_size)
+  single_cell = tf.contrib.rnn.BasicLSTMCell(FLAGS.state_dim)
+  cell = tf.contrib.rnn.MultiRNNCell([single_cell]*FLAGS.layer_size)
 
   def sampled_loss(inputs, labels):
     labels = tf.reshape(labels, [-1, 1])
@@ -398,7 +401,7 @@ def model(x, y, t, t_w, buckets, train=True):
 
   # The seq2seq function: we use embedding for the input and attention.
   def seq2seq_f(x, y, do_decode):
-    return tf.nn.seq2seq.embedding_attention_seq2seq(
+    return tf.contrib.legacy_seq2seq.embedding_attention_seq2seq(
         x,
         y,
         cell,
@@ -416,7 +419,7 @@ def model(x, y, t, t_w, buckets, train=True):
   else:
     do_decode = False
 
-  _outputs, losses = tf.nn.seq2seq.model_with_buckets(
+  _outputs, losses = tf.contrib.legacy_seq2seq.model_with_buckets(
       x, y, t,
       t_w, buckets,
       lambda x, y: seq2seq_f(x, y, True),
@@ -424,13 +427,13 @@ def model(x, y, t, t_w, buckets, train=True):
   # only for inference step
   # If we use output projection, we need to project outputs for decoding.
   outputs = []
-  for b_id in xrange(len(buckets)):
+  for b_id in range(len(buckets)):
     outputs.append([tf.matmul(_output, w) + b for _output in _outputs[b_id]])
 
   return outputs, losses
 
 def get_opt(losses, buckets, dtype=tf.float32):
-  print "setup optimizer..."
+  print("setup optimizer...")
   # Gradients and SGD update operation for training the model.
   learning_rate = tf.Variable(float(FLAGS.learning_rate), trainable=False, dtype=dtype)
   learning_rate_decay_op = learning_rate.assign(learning_rate*FLAGS.learning_rate_decay_factor)
@@ -440,7 +443,7 @@ def get_opt(losses, buckets, dtype=tf.float32):
   gradient_norms = []
   updates = []
   opt = tf.train.GradientDescentOptimizer(learning_rate)
-  for b in xrange(len(buckets)):
+  for b in range(len(buckets)):
     gradients = tf.gradients(losses[b], params)
     clipped_gradients, norm = tf.clip_by_global_norm(gradients, FLAGS.max_gradient_norm)
     gradient_norms.append(norm)
@@ -450,16 +453,16 @@ def get_opt(losses, buckets, dtype=tf.float32):
 
 def print_now(start):
   current = datetime.now()
-  print "\telapsed:", current - start
+  print("\telapsed: {}".format(current - start))
 
 def process(train=True):
   start = datetime.now()
-  print "Start: ",  start.strftime("%Y-%m-%d_%H-%M-%S")
+  print("Start: {}".format(start.strftime("%Y-%m-%d_%H-%M-%S")))
 
   _conversations = read_data()
   word2id, id2word = build_dict(_conversations)
-  print word2id.items()[:10]
-  print id2word.items()[:10]
+  print(list(word2id.items())[:10])
+  print(list(id2word.items())[:10])
   conversations = build_conversations(word2id, id2word, _conversations)
   print_now(start)
 
@@ -473,11 +476,11 @@ def process(train=True):
     outputs, losses = model(x, y, t, t_w, _buckets, True)
     print_now(start)
 
-  outtexts = [[] for _ in xrange(len(_buckets))]
+  outtexts = [[] for _ in range(len(_buckets))]
   for b_id, bucket in enumerate(_buckets):
-    print bucket
+    print("bucket: %d"%bucket)
     _, decoder_size = bucket
-    for l in xrange(decoder_size):  # Output logits.
+    for l in range(decoder_size):  # Output logits.
       outtexts[b_id].append(tf.argmax(outputs[b_id][l][0], 0))
 #
   updates, gradient_norms, learning_rate_decay_op = get_opt(losses, _buckets)
@@ -487,16 +490,16 @@ def process(train=True):
     outputs_infer, _ = model(x, y, t, t_w, _buckets, False)
     print_now(start)
 
-  outtexts_infer = [[] for _ in xrange(len(_buckets))]
+  outtexts_infer = [[] for _ in range(len(_buckets))]
   for b_id, bucket in enumerate(_buckets):
-    print bucket
+    print("bucket: %d"%(bucket))
     _, decoder_size = bucket
-    for l in xrange(decoder_size):  # Output logits.
+    for l in range(decoder_size):  # Output logits.
       outtexts_infer[b_id].append(tf.argmax(outputs_infer[b_id][l][0], 0))
 
   var_list = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
   for i, var in enumerate(var_list):
-    print "[", i, "]", var
+    print("[%d]: %d"%(i, var))
 
   init_op = tf.group(tf.global_variables_initializer(),
                      tf.local_variables_initializer())
@@ -511,23 +514,23 @@ def process(train=True):
     # Start input enqueue threads.
     saver = tf.train.Saver()
     checkpoint = tf.train.latest_checkpoint(FLAGS.save_dir)
-    print "checkpoint: %s" % checkpoint
+    print("checkpoint: %s" % checkpoint)
     if checkpoint:
-      print "Restoring from checkpoint", checkpoint
+      print("Restoring from checkpoint: %s"%checkpoint)
       saver.restore(sess, checkpoint)
     else:
-      print "Couldn't find checkpoint to restore from. Starting over."
+      print("Couldn't find checkpoint to restore from. Starting over.")
       dt = datetime.now()
       filename = "checkpoint" + dt.strftime("%Y-%m-%d_%H-%M-%S")
       checkpoint = os.path.join(FLAGS.save_dir, filename)
 
-    for epoch in xrange(FLAGS.max_epoch):
-      print "#####################################################################"
+    for epoch in range(FLAGS.max_epoch):
+      print("#####################################################################")
       batches = shuffle(_batches)
       batch_len = len(batches)
-      for itr in xrange(batch_len):
-        print "==================================================================="
-        print "[", epoch, "]", "%d/%d"%(itr, batch_len)
+      for itr in range(batch_len):
+        print("===================================================================")
+        print("[%d] %d/%d"%(epoch, itr, batch_len))
 
         batch = batches[itr]
         bucket_id = batch[0]
@@ -548,25 +551,25 @@ def process(train=True):
 
           _, _, loss = sess.run(output_feed, feed_dict)
           #outs = sess.run(output_feed, feed_dict)
-          print "loss:", loss
+          print("loss: %f"%loss)
           ids = sess.run(outtexts_infer[bucket_id], feed_dict)
           final = " ".join(recover_sentence(id2word, ids))
-          print "Q:", q
-          print "A:", a
-          print "G:", final
+          print("Q: %s"%q)
+          print("A: %s"%a)
+          print("G: %s"%final)
         else:
           _, _, loss = sess.run(output_feed, feed_dict)
-          print "loss:", loss
+          print("loss: %f"%loss)
           ids = sess.run(outtexts[bucket_id], feed_dict)
           final = " ".join(recover_sentence(id2word, ids))
-          print "Q:", q
-          print "A:", a
-          print "G:", final
+          print("Q: %s"%q)
+          print("A: %s"%a)
+          print("G: %s"%final)
 
         loss_btw_chk += loss/FLAGS.save_itr
 
         current = datetime.now()
-        print "\telapsed:", current - start
+        print("\telapsed: {}".format(current - start))
 
 
         if itr > 1 and itr % FLAGS.save_itr == 0:
@@ -577,7 +580,7 @@ def process(train=True):
           if len(previous_losses) > 3:
             previous_losses.pop(0)
           loss_btw_chk = 0.0, 0.0
-          print "#######################################################"
+          print("#######################################################")
           saver.save(sess, checkpoint)
 
 def infer():
@@ -586,12 +589,12 @@ def infer():
 
 def main(args):
   if FLAGS.train == True:
-    print "########################################################"
-    print "train()"
+    print("########################################################")
+    print("train()")
     process()
   else:
-    print "########################################################"
-    print "infer()"
+    print("########################################################")
+    print("infer()")
     process(train=False)
 
 
