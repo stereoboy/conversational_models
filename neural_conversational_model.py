@@ -302,7 +302,7 @@ def parse_batch(batch, bucket_size):
     encoder_pad = [pad] * (encoder_size - len(encoder_input))
     encoder_inputs.append(list(reversed(encoder_input + encoder_pad)))
 
-    # since <go>, len(decoder_inputs) = 1 + decoder_size 
+    # since <go>, len(decoder_inputs) = 1 + decoder_size
     decoder_pad_size = decoder_size - len(decoder_input)
     decoder_inputs.append([go] + decoder_input +
                           [pad] * decoder_pad_size)
@@ -319,7 +319,7 @@ def parse_batch(batch, bucket_size):
   # Batch decoder inputs are re-indexed decoder_inputs, we create weights.
   for length_idx in range(len(decoder_inputs[0])):
     batch_decoder_inputs.append(
-        np.array([decoder_inputs[batch_idx][length_idx] 
+        np.array([decoder_inputs[batch_idx][length_idx]
                   for batch_idx in range(FLAGS.batch_size)], dtype=np.int32))
 
     # Create target_weights to be 0 for targets that are padding.
@@ -388,15 +388,32 @@ def model(x, y, t, t_w, buckets, train=True):
   single_cell = tf.contrib.rnn.BasicLSTMCell(FLAGS.state_dim)
   cell = tf.contrib.rnn.MultiRNNCell([single_cell]*FLAGS.layer_size)
 
-  def sampled_loss(inputs, labels):
+#  def sampled_loss(inputs, labels):
+#    labels = tf.reshape(labels, [-1, 1])
+#    # We need to compute the sampled_softmax_loss using 32bit floats to
+#    # avoid numerical instabilities.
+#    local_inputs = tf.cast(inputs, tf.float32)
+#    return tf.cast(
+#        tf.nn.sampled_softmax_loss(w_t, b, local_inputs, labels,
+#          FLAGS.num_samples, FLAGS.voc_size),
+#        dtype=tf.float32)
+  def sampled_loss(labels, inputs):
     labels = tf.reshape(labels, [-1, 1])
     # We need to compute the sampled_softmax_loss using 32bit floats to
     # avoid numerical instabilities.
+    local_w_t = tf.cast(w_t, tf.float32)
+    local_b = tf.cast(b, tf.float32)
     local_inputs = tf.cast(inputs, tf.float32)
     return tf.cast(
-        tf.nn.sampled_softmax_loss(w_t, b, local_inputs, labels,
-          FLAGS.num_samples, FLAGS.voc_size),
+        tf.nn.sampled_softmax_loss(
+          weights=local_w_t,
+          biases=local_b,
+          labels=labels,
+          inputs=local_inputs,
+          num_sampled=FLAGS.num_samples,
+          num_classes=FLAGS.voc_size),
         dtype=tf.float32)
+
   softmax_loss_function = sampled_loss
 
   # The seq2seq function: we use embedding for the input and attention.
@@ -478,7 +495,9 @@ def process(train=True):
 
   outtexts = [[] for _ in range(len(_buckets))]
   for b_id, bucket in enumerate(_buckets):
-    print("bucket: %d"%bucket)
+    print("bucket:", end="")
+    print(bucket)
+    print("bucket: {}".format(bucket))
     _, decoder_size = bucket
     for l in range(decoder_size):  # Output logits.
       outtexts[b_id].append(tf.argmax(outputs[b_id][l][0], 0))
@@ -492,14 +511,14 @@ def process(train=True):
 
   outtexts_infer = [[] for _ in range(len(_buckets))]
   for b_id, bucket in enumerate(_buckets):
-    print("bucket: %d"%(bucket))
+    print("bucket: {}".format(bucket))
     _, decoder_size = bucket
     for l in range(decoder_size):  # Output logits.
       outtexts_infer[b_id].append(tf.argmax(outputs_infer[b_id][l][0], 0))
 
   var_list = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
   for i, var in enumerate(var_list):
-    print("[%d]: %d"%(i, var))
+    print("[%d]: %s"%(i, var))
 
   init_op = tf.group(tf.global_variables_initializer(),
                      tf.local_variables_initializer())
