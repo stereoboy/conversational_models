@@ -12,30 +12,34 @@ import collections
 from tqdm import tqdm  # Progress bar
 
 FLAGS = tf.flags.FLAGS
-tf.flags.DEFINE_integer("state_dim", "1024", "cell state size")
-tf.flags.DEFINE_integer("voc_size", "20000", "vocabulary size")
-tf.flags.DEFINE_integer("layer_size", "2", "LSTM layer size")
-tf.flags.DEFINE_integer("num_samples", "512", "number of samples for sampled_softmax")
+#tf.flags.DEFINE_integer("state_dim", "1024", "cell state size")
+tf.flags.DEFINE_integer("state_dim", "512", "cell state size")
+tf.flags.DEFINE_integer("voc_size", "40000", "vocabulary size")
+tf.flags.DEFINE_integer("layer_size", "3", "LSTM layer size")
+tf.flags.DEFINE_integer("num_samples", "10000", "number of samples for sampled_softmax")
 #tf.flags.DEFINE_integer("batch_size", "64", "batch_size")
-tf.flags.DEFINE_integer("batch_size", "16", "batch_size")
+tf.flags.DEFINE_integer("batch_size", "256", "batch_size")
+#tf.flags.DEFINE_integer("batch_size", "16", "batch_size")
+#tf.flags.DEFINE_integer("max_len", "32", "seq max_size before adding <eos>")
 #tf.flags.DEFINE_integer("max_len", "42", "seq max_size before adding <eos>")
-tf.flags.DEFINE_integer("max_len", "10", "seq max_size before adding <eos>")
+tf.flags.DEFINE_integer("max_len", "12", "seq max_size before adding <eos>")
 tf.flags.DEFINE_string("directory", "./", "directory for TFRecords")
-tf.flags.DEFINE_integer("max_epoch", "10", "maximum iterations for training")
+tf.flags.DEFINE_integer("max_epoch", "300", "maximum iterations for training")
 tf.flags.DEFINE_integer("max_itrs", "10000", "maximum iterations for training")
 tf.flags.DEFINE_integer("img_size", "500", "sample image size")
 tf.flags.DEFINE_string("dicts_file", "cornell_dicts.json", "dictionary file for saving word2id, id2word")
-tf.flags.DEFINE_string("convs_file", "cornell_convs_v3.json", "conversation ids file")
+tf.flags.DEFINE_string("convs_file", "cornell_convs_v2.json", "conversation ids file")
 tf.flags.DEFINE_string("save_dir", "cm_checkpoints", "dir for checkpoints")
 tf.flags.DEFINE_integer("save_itr", "200", "checkpoint interval")
-tf.flags.DEFINE_float("learning_rate", "0.5", "Learning rate for Momentum Optimizer")
+tf.flags.DEFINE_float("learning_rate", "0.002", "Learning rate for Optimizer")
+tf.flags.DEFINE_float("beta1", "0.9", "beta1 for Adam optimizer")
+tf.flags.DEFINE_float("beta2", "0.999", "beta2 for Adam optimizer")
 tf.flags.DEFINE_float("learning_rate_decay_factor", 0.99, "Learning rate decays by this much.")
 tf.flags.DEFINE_float("max_gradient_norm", 5.0, "Clip gradients to this norm.")
-tf.flags.DEFINE_float("beta1", "0.5", "beta1 for Adam optimizer")
 tf.flags.DEFINE_float("momentum", "0.9", "momentum for Momentum Optimizer")
 tf.flags.DEFINE_float("weight_decay", "0.0016", "Learning rate for Momentum Optimizer")
 tf.flags.DEFINE_integer("num_threads", "6", "max thread number")
-tf.flags.DEFINE_float("eps", "1e-5", "epsilon for various operation")
+tf.flags.DEFINE_float("eps", "1e-8", "epsilon for various operation")
 tf.flags.DEFINE_boolean("train", True, "train or inference?")
 
 unknown = 0 #word2id["<unknown>"]
@@ -45,11 +49,14 @@ eos =     3 #word2id["<eos>"]
 
 #V1
 #_buckets = [(5,5), (12, 12), (12, 22), (22, 12), (22, 22), (32, 32), (FLAGS.max_len, FLAGS.max_len+1)]
+#_buckets = [(5,5), (12, 12), (12, 22), (22, 12), (22, 22), (FLAGS.max_len, FLAGS.max_len+1)]
 #V2
 #_buckets = [(5,5), (12, 12),]
-#V3
+#_buckets = [(5,5), (8,8), (FLAGS.max_len, FLAGS.max_len + 1),]
 _buckets = [(FLAGS.max_len, FLAGS.max_len + 1),]
-_buckets = [(8, 8)]
+#V3
+#_buckets = [(FLAGS.max_len, FLAGS.max_len + 1),]
+#_buckets = [(8, 8)]
 #_buckets = [(8, 8), (12, 12)]
 #
 # original source code of read_data() is from https://github.com/Conchylicultor/DeepQA.git
@@ -167,9 +174,9 @@ def build_dict(_conversations):
 
     id2word = dict(zip(word2id.values(), word2id.keys()))
 
-    print(word2id.values()[:10])
-    print(word2id.keys()[:10])
-    with open(dictionary_path, "wb+") as f:
+    print(list(word2id.values())[:10])
+    print(list(word2id.keys())[:10])
+    with open(dictionary_path, "w") as f:
       data = {'word2id':word2id, 'id2word':id2word}
       json.dump(data, f, indent=2)
   return word2id, id2word
@@ -230,8 +237,8 @@ def build_conversations(word2id, id2word, _conversations):
   conversation_path = os.path.join("./", FLAGS.convs_file)
   if os.path.exists(conversation_path):
     print("load %s"%(conversation_path))
-    with open(conversation_path) as f:
-      data = json.load(f)
+    with open(conversation_path, encoding='utf-8') as f:
+      data = json.loads(f.read())
       conversations = data['conversations']
 
   else:
@@ -249,24 +256,26 @@ def build_conversations(word2id, id2word, _conversations):
 
         if encode and decode:  # Filter wrong samples (if one of the list is empty)
           conversations.append((encode, decode))
-#        print _encode["text"]
-#        print "encode:", " ".join(recover_sentence(id2word, encode))
-#        print _decode["text"]
-#        print "decode:", " ".join(recover_sentence(id2word, decode))
+#        print(_encode["text"])
+#        print("encode:", " ".join(recover_sentence(id2word, encode)))
+#        print(_decode["text"])
+#        print("decode:", " ".join(recover_sentence(id2word, decode)))
 
-    with open(conversation_path, "wb+") as f:
+    with open(conversation_path, "w") as f:
       data = {'conversations': conversations}
       json.dump(data, f, indent=2)
 
   return conversations
 
 def create_batch(conversations, buckets):
+  print('create_batch()')
   _batches = [[] for _ in buckets]
   for (encode, decode) in conversations:
     decode =  decode + [eos]
     for bucket_id, (encoder_size, decoder_size) in enumerate(buckets):
       if len(encode) <= encoder_size and len(decode) <= decoder_size:
         _batches[bucket_id].append((encode, decode))
+        break
 
   for bucket_id, (encoder_size, decoder_size) in enumerate(buckets):
     print("[%d](%dx%d): %d"%(bucket_id, encoder_size, decoder_size, len(_batches[bucket_id])))
@@ -454,17 +463,31 @@ def get_opt(losses, buckets, dtype=tf.float32):
   # Gradients and SGD update operation for training the model.
   learning_rate = tf.Variable(float(FLAGS.learning_rate), trainable=False, dtype=dtype)
   learning_rate_decay_op = learning_rate.assign(learning_rate*FLAGS.learning_rate_decay_factor)
+
   global_step = tf.Variable(0, trainable=False)
 
   params = tf.trainable_variables()
   gradient_norms = []
   updates = []
+#  global_step = tf.Variable(0, trainable=False)
+#  learning_rate_first = 2.0
+  decay_factor = 0.99
+  learning_rate = tf.train.exponential_decay(FLAGS.learning_rate, global_step,
+                                                 50, decay_factor, staircase=True, name='learning_rate')
+  learning_rate = tf.Print(learning_rate, [learning_rate], message="learning_rate:")
+#  optimizer = tf.train.MomentumOptimizer(learning_rate,
+#                                         FLAGS.momentum).minimize(loss,
+#                                                       var_list=var_list,
+#                                                       global_step=global_step)
   opt = tf.train.GradientDescentOptimizer(learning_rate)
+  learning_rate_first = 2.0
+  opt = tf.train.AdamOptimizer(FLAGS.learning_rate, beta1=FLAGS.beta1, beta2=FLAGS.beta2, epsilon=FLAGS.eps)
   for b in range(len(buckets)):
     gradients = tf.gradients(losses[b], params)
     clipped_gradients, norm = tf.clip_by_global_norm(gradients, FLAGS.max_gradient_norm)
     gradient_norms.append(norm)
-    updates.append(opt.apply_gradients(zip(clipped_gradients, params), global_step=global_step))
+    #updates.append(opt.apply_gradients(zip(clipped_gradients, params), global_step=global_step))
+    updates.append(opt.minimize(losses[b], global_step=global_step))
 
   return updates, gradient_norms, learning_rate_decay_op
 
@@ -495,8 +518,6 @@ def process(train=True):
 
   outtexts = [[] for _ in range(len(_buckets))]
   for b_id, bucket in enumerate(_buckets):
-    print("bucket:", end="")
-    print(bucket)
     print("bucket: {}".format(bucket))
     _, decoder_size = bucket
     for l in range(decoder_size):  # Output logits.
@@ -528,7 +549,6 @@ def process(train=True):
     sess.run(init_op)
 
     previous_losses = []
-    loss_btw_chk = 0.0
 
     # Start input enqueue threads.
     saver = tf.train.Saver()
@@ -547,6 +567,7 @@ def process(train=True):
       print("#####################################################################")
       batches = shuffle(_batches)
       batch_len = len(batches)
+      loss_btw_chk = 0.0
       for itr in range(batch_len):
         print("===================================================================")
         print("[%d] %d/%d"%(epoch, itr, batch_len))
@@ -554,6 +575,7 @@ def process(train=True):
         batch = batches[itr]
         bucket_id = batch[0]
         bucket_size = _buckets[bucket_id]
+        print('\tbucket: {}, {}'.format(bucket_size[0], bucket_size[1]))
         encoder_size, decoder_size = bucket_size
         x_inputs, y_inputs, t_w_inputs = parse_batch(batch, bucket_size)
         feed_dict = set_feed((x, x_inputs), (y, y_inputs), (t_w, t_w_inputs), bucket_size)
@@ -564,18 +586,19 @@ def process(train=True):
         # Output feed: depends on whether we do a backward step or not.
         if train:
           output_feed = [updates[bucket_id],  # Update Op that does SGD.
-              gradient_norms[bucket_id],  # Gradient norm.
+              #gradient_norms[bucket_id],  # Gradient norm.
               losses[bucket_id]]  # Loss for this batch.
           #output_feed.append(outtexts[bucket_id])
 
-          _, _, loss = sess.run(output_feed, feed_dict)
+          _, loss = sess.run(output_feed, feed_dict)
           #outs = sess.run(output_feed, feed_dict)
           print("loss: %f"%loss)
-          ids = sess.run(outtexts_infer[bucket_id], feed_dict)
-          final = " ".join(recover_sentence(id2word, ids))
-          print("Q: %s"%q)
-          print("A: %s"%a)
-          print("G: %s"%final)
+          if itr > 1 and itr % 20 == 0:
+            ids = sess.run(outtexts_infer[bucket_id], feed_dict)
+            final = " ".join(recover_sentence(id2word, ids))
+            print("Q: %s"%q)
+            print("A: %s"%a)
+            print("G: %s"%final)
         else:
           _, _, loss = sess.run(output_feed, feed_dict)
           print("loss: %f"%loss)
@@ -585,22 +608,24 @@ def process(train=True):
           print("A: %s"%a)
           print("G: %s"%final)
 
-        loss_btw_chk += loss/FLAGS.save_itr
+        loss_btw_chk += loss/batch_len
 
         current = datetime.now()
         print("\telapsed: {}".format(current - start))
 
-
+        print('loss_btw_chk: {}'.format(loss_btw_chk))
         if itr > 1 and itr % FLAGS.save_itr == 0:
           # Decrease learning rate if no improvement was seen over last 3 times.
           if len(previous_losses) > 2 and loss_btw_chk > max(previous_losses):
-            sess.run(learning_rate_decay_op)
+            print("update learning_rate!!!")
+            #sess.run(learning_rate_decay_op)
           previous_losses.append(loss_btw_chk)
-          if len(previous_losses) > 3:
+          if len(previous_losses) > 4:
             previous_losses.pop(0)
-          loss_btw_chk = 0.0, 0.0
-          print("#######################################################")
-          saver.save(sess, checkpoint)
+          loss_btw_chk = 0.0
+          print('previous_losses: {}'.format(previous_losses))
+      print("#######################################################")
+      saver.save(sess, checkpoint)
 
 def infer():
 
